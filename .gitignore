@@ -1,0 +1,6 @@
+test
+*.kdev4
+test-str
+test-vector
+test-str-list
+test-intrusive-list
