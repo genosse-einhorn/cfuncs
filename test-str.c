@@ -25,10 +25,12 @@ test_create(void)
     a = str_dup("Goodbye World");
 
     str_assign(&a, NULL);
-    assert(!a);
+    assert(!strcmp(a, ""));
+    str_clear(&a);
 
     a = str_dup(NULL);
-    assert(!a);
+    assert(!strcmp(a, ""));
+    str_clear(&a);
 }
 
 static void
@@ -123,7 +125,7 @@ test_printf(void)
     assert(str_length(a) == (int)strlen("Hello, World! 42"));
     assert(!strcmp(a, "Hello, World! 42"));
 
-    str_append_printf(&a, "Ho ho h%c", (int)'i');
+    str_assign_printf(&a, "%sHo ho h%c", a, (int)'i');
     assert(!strcmp(a, "Hello, World! 42Ho ho hi"));
 
     str_clear(&a);

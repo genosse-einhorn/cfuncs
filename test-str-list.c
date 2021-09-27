@@ -84,7 +84,8 @@ test_join(void)
     char *s = NULL;
 
     s = str_joined(l, "hello");
-    assert(s == NULL);
+    assert(!strcmp(s, ""));
+    str_clear(&s);
 
     str_list_add(&l, "Hello, World!");
     s = str_joined(l, "hello");

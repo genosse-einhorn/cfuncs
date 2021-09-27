@@ -370,9 +370,9 @@ _vector_reallocarray_with_header(void *(*realloc)(void *, size_t), void *ptr, si
     static inline void \
     function_prefix##_swap(VectorType *a, VectorType *b) \
     { \
-        VectorType *tmp = a; \
-        a = b; \
-        b = tmp; \
+        VectorType tmp = *a; \
+        *a = *b; \
+        *b = tmp; \
     } \
     static inline void \
     function_prefix##_resize_zero(VectorType *a, size_t length)  \

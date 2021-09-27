@@ -52,16 +52,6 @@ _str_xrealloc(void *p, size_t len)
 }
 
 static inline void
-str_realloc(char **ps, int newlen)
-{
-    assert(ps);
-    assert(newlen >= 0);
-
-    *ps = (char*)_str_xrealloc(*ps, (size_t)newlen + 1);
-    (*ps)[newlen] = 0; // ensure 0 termination, caller is required to fill in the rest
-}
-
-static inline void
 str_clear(char **ps)
 {
     if (ps && *ps) {
@@ -71,9 +61,16 @@ str_clear(char **ps)
 }
 
 static inline void
-str_free(char *s)
+str_realloc(char **ps, int newlen)
 {
-    free(s);
+    assert(ps);
+
+    if (newlen >= 0) {
+        *ps = (char*)_str_xrealloc(*ps, (size_t)newlen + 1);
+        (*ps)[newlen] = 0; // ensure 0 termination, caller is required to fill in the rest
+    } else {
+        str_clear(ps);
+    }
 }
 
 static inline void
@@ -84,53 +81,65 @@ str_swap(char **pa, char **pb)
     *pb = tmp;
 }
 
-static inline void
-str_assign_buf(char **target, const char *data, int len)
-{
-    assert(target);
-    assert(len >= 0);
-    if (!data) {
-        str_clear(target);
-    } else {
-        assert(*target != data);
 
-        str_realloc(target, len);
-        memcpy(*target, data, (size_t)len);
-    }
-}
-
-static inline void
-str_assign(char **target, const char *str)
+static inline char *
+str_dup_buf(const char *s, int len)
 {
-    str_assign_buf(target, str, str_length(str));
+    char *r = (char *)_str_xrealloc(NULL, (size_t)len + 1);
+    memcpy(r, s, (size_t)len);
+    r[len] = 0;
+    return r;
 }
 
 // like strdup(), but deals with NULL
 static inline char *
 str_dup(const char *s)
 {
-    char *r = NULL;
-    str_assign(&r, s);
-    return r;
-}
-
-static inline char *
-str_dup_buf(const char *s, int len)
-{
-    char *r = NULL;
-    str_assign_buf(&r, s, len);
-    return r;
+    return str_dup_buf(s ? s : "", str_length(s));
 }
 
 static inline void
-str_append_buf(char **target, int target_len, const char *data, int len)
+str_assign_buf(char **target, const char *data, int len)
 {
     assert(target);
 
-    if (data && len > 0) {
-        str_realloc(target, target_len + len);
-        memcpy(&(*target)[target_len], data, (size_t)len);
+    char *n = str_dup_buf(data, len);
+    str_swap(target, &n);
+    str_clear(&n);
+}
+
+static inline void
+str_assign(char **target, const char *str)
+{
+    assert(target);
+
+    char *n = str_dup(str);
+    str_swap(target, &n);
+    str_clear(&n);
+}
+
+static inline void
+str_append_buf(char **target, const char *data, int len)
+{
+    assert(target);
+    assert(len >= 0);
+    assert(data || len == 0);
+
+    char *n = NULL;
+
+    int target_len = str_length(*target);
+
+    str_realloc(&n, target_len + len);
+
+    if (target_len > 0) {
+        memcpy(n, *target, (size_t)target_len);
     }
+    if (len > 0) {
+        memcpy(n + target_len, data, (size_t)len);
+    }
+
+    str_swap(target, &n);
+    str_clear(&n);
 }
 
 static inline void
@@ -138,7 +147,7 @@ str_append(char **target, const char *str)
 {
     assert(target);
 
-    str_append_buf(target, str_length(*target), str, str_length(str));
+    str_append_buf(target, str, str_length(str));
 }
 
 // NOTE: a or b may be NULL if a_len/b_len is 0
@@ -203,10 +212,9 @@ str_equal(const char *a, const char *b)
     return *a == *b;
 }
 
-static inline void
-str_assign_vprintf(char **ps, const char *format, va_list ap)
+static inline char *
+str_vprintf(const char *format, va_list ap)
 {
-    assert(ps);
     assert(format);
 
     va_list ap2;
@@ -214,36 +222,26 @@ str_assign_vprintf(char **ps, const char *format, va_list ap)
     int len = vsnprintf(NULL, 0, format, ap2);
     va_end(ap2);
 
-    str_realloc(ps, len);
     if (len > 0) {
-        int len2 = vsnprintf(*ps, (size_t)len+1, format, ap);
+        char *n = (char *)_str_xrealloc(NULL, (size_t)len + 1);
+
+        int len2 = vsnprintf(n, (size_t)len+1, format, ap);
         assert(len2 == len);
+
+        return n;
+    } else {
+        return str_dup(NULL);
     }
 }
 
 static inline void
-str_append_vprintf(char **ps, const char *format, va_list ap)
+str_assign_vprintf(char **ps, const char *format, va_list ap)
 {
-    va_list ap2;
-    va_copy(ap2, ap);
-    int len = vsnprintf(NULL, 0, format, ap2);
-    va_end(ap2);
+    assert(ps);
 
-    int oldlen = str_length(*ps);
-
-    str_realloc(ps, oldlen + len);
-    if (len > 0) {
-        int len2 = vsnprintf(*ps + oldlen, (size_t)len+1, format, ap);
-        assert(len2 == len);
-    }
-}
-
-static inline char *
-str_vprintf(const char *format, va_list ap)
-{
-    char *out = NULL;
-    str_assign_vprintf(&out, format, ap);
-    return out;
+    char *out = str_vprintf(format, ap);
+    str_swap(ps, &out);
+    str_clear(&out);
 }
 
 static inline void
@@ -255,18 +253,6 @@ str_assign_printf(char **ps, const char *format, ...)
     va_list ap;
     va_start(ap, format);
     str_assign_vprintf(ps, format, ap);
-    va_end(ap);
-}
-
-static inline void
-#ifdef __GNUC__
-__attribute__((format(printf, 2, 3)))
-#endif
-str_append_printf(char **ps, const char *format, ...)
-{
-    va_list ap;
-    va_start(ap, format);
-    str_append_vprintf(ps, format, ap);
     va_end(ap);
 }
 
@@ -285,8 +271,8 @@ str_printf(const char *format, ...)
 
 // substr like python slicing, supports negative indexes for counting from the end
 // s is allowed to be NULL
-static inline void
-str_assign_substr(char **target, const char *s, int start, int end)
+static inline char *
+str_substr(const char *s, int start, int end)
 {
     int slen = str_length(s);
     s = s ? s : "";
@@ -312,15 +298,15 @@ str_assign_substr(char **target, const char *s, int start, int end)
     if (end < start)
         end = start;
 
-    str_assign_buf(target, s + start, end - start);
+    return str_dup_buf(s + start, end - start);
 }
 
-static inline char *
-str_substr(const char *s, int start, int end)
+static inline void
+str_assign_substr(char **target, const char *s, int start, int end)
 {
-    char *r = NULL;
-    str_assign_substr(&r, s, start, end);
-    return r;
+    char *r = str_substr(s, start, end);
+    str_swap(target, &r);
+    str_clear(&r);
 }
 
 // like the other substr functions, but memmove(3)s the data inside the buffer
@@ -463,26 +449,28 @@ str_last_index_of(const char *haystack, const char *needle)
                                  needle ? needle : "", str_length(needle));
 }
 
+static inline char *
+str_reversed(const char *s)
+{
+    int l = str_length(s);
+    char *n = NULL;
+
+    str_realloc(&n, l);
+    for (int i = 0; i < l; ++i) {
+        n[i] = s[l-i-1];
+    }
+
+    return n;
+}
+
 static inline void
 str_assign_reversed(char **target, const char *s)
 {
     assert(target);
-    assert(*target != s);
 
-    int l = str_length(s);
-
-    str_realloc(target, l);
-    for (int i = 0; i < l; ++i) {
-        (*target)[i] = s[l-i-1];
-    }
-}
-
-static inline char *
-str_reversed(const char *s)
-{
-    char *r = NULL;
-    str_assign_reversed(&r, s);
-    return r;
+    char *r = str_reversed(s);
+    str_swap(target, &r);
+    str_clear(&r);
 }
 
 static inline void
@@ -496,8 +484,8 @@ str_reverse_inplace(char *s)
     }
 }
 
-static inline void
-str_assign_replaced(char **target, const char *haystack, const char *needle, const char *replacement)
+static inline char *
+str_replaced(const char *haystack, const char *needle, const char *replacement)
 {
     haystack = haystack ? haystack : "";
     needle = needle ? needle : "";
@@ -507,16 +495,15 @@ str_assign_replaced(char **target, const char *haystack, const char *needle, con
     int needle_len = str_length(needle);
     int replacement_len = str_length(replacement);
 
-    assert(target);
-    assert(*target != haystack);
+    char *n = NULL;
 
     if (needle_len < 1) {
         // special: insert replacement between all chars
-        str_realloc(target, replacement_len * (haystack_len + 1) + haystack_len);
-        memcpy(*target, replacement, (size_t)replacement_len);
+        str_realloc(&n, replacement_len * (haystack_len + 1) + haystack_len);
+        memcpy(n, replacement, (size_t)replacement_len);
         for (int i = 0; i < haystack_len; ++i) {
-            (*target)[replacement_len + i * (replacement_len + 1)] = haystack[i];
-            memcpy(*target + (replacement_len + 1) * (i + 1), replacement, (size_t)replacement_len);
+            (n)[replacement_len + i * (replacement_len + 1)] = haystack[i];
+            memcpy(n + (replacement_len + 1) * (i + 1), replacement, (size_t)replacement_len);
         }
     } else {
         // TODO: improve memory allocation strategy
@@ -526,48 +513,55 @@ str_assign_replaced(char **target, const char *haystack, const char *needle, con
 
         int imatch = -1;
         while ((imatch = str_index_of_buf(haystack + iin, haystack_len - iin, needle, needle_len)) >= 0) {
-            str_realloc(target, iout + imatch + replacement_len);
-            memcpy(*target + iout, haystack + iin, (size_t)imatch);
-            memcpy(*target + iout + imatch, replacement, (size_t)replacement_len);
+            str_realloc(&n, iout + imatch + replacement_len);
+            memcpy(n + iout, haystack + iin, (size_t)imatch);
+            memcpy(n + iout + imatch, replacement, (size_t)replacement_len);
             iin += imatch + needle_len;
             iout += imatch + replacement_len;
         }
 
-        str_realloc(target, iout + haystack_len - iin);
-        memcpy(*target + iout, haystack + iin, (size_t)(haystack_len - iin));
+        str_realloc(&n, iout + haystack_len - iin);
+        memcpy(n + iout, haystack + iin, (size_t)(haystack_len - iin));
     }
+
+    return n;
+}
+
+static inline void
+str_assign_replaced(char **target, const char *haystack, const char *needle, const char *replacement)
+{
+    assert(target);
+
+    char *r = str_replaced(haystack, needle, replacement);
+    str_swap(target, &r);
+    str_clear(&r);
 }
 
 static inline char *
-str_replaced(const char *haystack, const char *needle, const char *replacement)
+str_left_padded(const char *s, int width, char pad)
 {
-    char *r = NULL;
-    str_assign_replaced(&r, haystack, needle, replacement);
-    return r;
+    int l = str_length(s);
+    if (l >= width) {
+        return str_dup(s);
+    } else {
+        char *n = NULL;
+        str_realloc(&n, width);
+
+        memset(n, pad, (size_t)(width - l));
+        memcpy(n + (width - l), s, (size_t)l);
+
+        return n;
+    }
 }
 
 static inline void
 str_assign_left_padded(char **out, const char *s, int width, char pad)
 {
     assert(out);
-    assert(*out != s);
 
-    int l = str_length(s);
-    if (l >= width) {
-        str_assign(out, s);
-    } else {
-        str_realloc(out, width);
-        memset(*out, pad, (size_t)(width - l));
-        memcpy(*out + (width - l), s, (size_t)l);
-    }
-}
-
-static inline char *
-str_left_padded(const char *s, int width, char pad)
-{
-    char *r = NULL;
-    str_assign_left_padded(&r, s, width, pad);
-    return r;
+    char *r = str_left_padded(s, width, pad);
+    str_swap(out, &r);
+    str_clear(&r);
 }
 
 static inline void
@@ -581,28 +575,31 @@ str_left_pad_inplace(char *buf, int width, char pad)
     memset(buf, pad, (size_t)(width - l));
 }
 
+static inline char *
+str_right_padded(const char *s, int width, char pad)
+{
+    int l = str_length(s);
+    if (l >= width) {
+        return str_dup(s);
+    } else {
+        char *n = NULL;
+        str_realloc(&n, width);
+
+        memcpy(n, s, (size_t)l);
+        memset(n + l, pad, (size_t)(width - l));
+
+        return n;
+    }
+}
+
 static inline void
 str_assign_right_padded(char **out, const char *s, int width, char pad)
 {
     assert(out);
-    assert(*out != s);
 
-    int l = str_length(s);
-    if (l >= width) {
-        str_assign(out, s);
-    } else {
-        str_realloc(out, width);
-        memcpy(*out, s, (size_t)l);
-        memset(*out + l, pad, (size_t)(width - l));
-    }
-}
-
-static inline char *
-str_right_padded(const char *s, int width, char pad)
-{
-    char *r = NULL;
-    str_assign_right_padded(&r, s, width, pad);
-    return r;
+    char *r = str_right_padded(s, width, pad);
+    str_swap(out, &r);
+    str_clear(&r);
 }
 
 static inline void
@@ -623,13 +620,10 @@ _str_is_ascii_space(char c)
 }
 
 // trims ascii whitespace (" \t\r\n\v\f") front and back
-static inline void
-str_assign_trimmed(char **target, const char *s)
+static inline char *
+str_trimmed(const char *s)
 {
     s = s ? s : "";
-
-    assert(target);
-    assert(*target != s);
 
     int len = str_length(s);
     int left = 0;
@@ -641,15 +635,17 @@ str_assign_trimmed(char **target, const char *s)
     while (right + left < len && _str_is_ascii_space(s[len - right - 1]))
         right++;
 
-    str_assign_substr(target, s, left, len - right);
+    return str_substr(s, left, len - right);
 }
 
-static inline char *
-str_trimmed(const char *s)
+static inline void
+str_assign_trimmed(char **target, const char *s)
 {
-    char *r = NULL;
-    str_assign_trimmed(&r, s);
-    return r;
+    assert(target);
+
+    char *r = str_trimmed(s);
+    str_swap(target, &r);
+    str_clear(&r);
 }
 
 static inline void
@@ -683,25 +679,28 @@ _str_ascii_upper(char c)
         return c;
 }
 
+static inline char *
+str_uppercased(const char *s)
+{
+    int len = str_length(s);
+
+    char *n = NULL;
+    str_realloc(&n, len);
+
+    for (int i = 0; i < len; ++i)
+        n[i] = _str_ascii_upper(s[i]);
+
+    return n;
+}
+
 static inline void
 str_assign_uppercased(char **target, const char *s)
 {
     assert(target);
-    assert(!s || *target != s);
 
-    int len = str_length(s);
-
-    str_realloc(target, len);
-    for (int i = 0; i < len; ++i)
-        (*target)[i] = _str_ascii_upper(s[i]);
-}
-
-static inline char *
-str_uppercased(const char *s)
-{
-    char *r = NULL;
-    str_assign_uppercased(&r, s);
-    return r;
+    char *r = str_uppercased(s);
+    str_swap(target, &r);
+    str_clear(&r);
 }
 
 static inline void
@@ -724,25 +723,27 @@ _str_ascii_lower(char c)
         return c;
 }
 
+static inline char *
+str_lowercased(const char *s)
+{
+    int len = str_length(s);
+
+    char *n = NULL;
+    str_realloc(&n, len);
+    for (int i = 0; i < len; ++i)
+        n[i] = _str_ascii_lower(s[i]);
+
+    return n;
+}
+
 static inline void
 str_assign_lowercased(char **target, const char *s)
 {
     assert(target);
-    assert(!s || *target != s);
 
-    int len = str_length(s);
-
-    str_realloc(target, len);
-    for (int i = 0; i < len; ++i)
-        (*target)[i] = _str_ascii_lower(s[i]);
-}
-
-static inline char *
-str_lowercased(const char *s)
-{
-    char *r = NULL;
-    str_assign_lowercased(&r, s);
-    return r;
+    char *r = str_lowercased(s);
+    str_swap(target, &r);
+    str_clear(&r);
 }
 
 static inline void
@@ -839,82 +840,83 @@ str_natcmp(const char *a, const char *b)
 }
 
 // debugging tool: string in c source
-static inline void
-str_assign_cliteral(char **out, const char *s)
+static inline char *
+str_cliteral(const char *s)
 {
-    assert(out);
-
     if (!s) {
-        str_assign(out, "NULL");
-        return;
+        return str_dup("NULL");
     }
 
     int l = str_length(s);
-    str_realloc(out, l * 4 + 2); // worst case estimate if we need octal escape for everything
+
+    char *n = NULL;
+    str_realloc(&n, l * 4 + 2); // worst case estimate if we need octal escape for everything
 
     int i = 1;
-    (*out)[0] = '"';
+    n[0] = '"';
     while (*s) {
         switch (*s) {
             case '"':
-                (*out)[i++] = '\\';
-                (*out)[i++] = '"';
+                n[i++] = '\\';
+                n[i++] = '"';
                 break;
             case '\\':
-                (*out)[i++] = '\\';
-                (*out)[i++] = '\\';
+                n[i++] = '\\';
+                n[i++] = '\\';
                 break;
             case '\a':
-                (*out)[i++] = '\\';
-                (*out)[i++] = 'a';
+                n[i++] = '\\';
+                n[i++] = 'a';
                 break;
             case '\b':
-                (*out)[i++] = '\\';
-                (*out)[i++] = 'b';
+                n[i++] = '\\';
+                n[i++] = 'b';
                 break;
             case '\f':
-                (*out)[i++] = '\\';
-                (*out)[i++] = 'f';
+                n[i++] = '\\';
+                n[i++] = 'f';
                 break;
             case '\n':
-                (*out)[i++] = '\\';
-                (*out)[i++] = 'n';
+                n[i++] = '\\';
+                n[i++] = 'n';
                 break;
             case '\r':
-                (*out)[i++] = '\\';
-                (*out)[i++] = 'r';
+                n[i++] = '\\';
+                n[i++] = 'r';
                 break;
             case '\t':
-                (*out)[i++] = '\\';
-                (*out)[i++] = 't';
+                n[i++] = '\\';
+                n[i++] = 't';
                 break;
             case '\v':
-                (*out)[i++] = '\\';
-                (*out)[i++] = 'v';
+                n[i++] = '\\';
+                n[i++] = 'v';
                 break;
             default:
                 if (((unsigned char)*s) < 32 || ((unsigned char)*s) > 126) {
                     if (s[1] >= '0' && s[1] <= '7') { // digit following -> need full 3 digit octal form
-                        i += sprintf(&(*out)[i], "\\%03o", (int)(unsigned char)*s);
+                        i += sprintf(&n[i], "\\%03o", (int)(unsigned char)*s);
                     } else { // short octal form suffices
-                        i += sprintf(&(*out)[i], "\\%o", (int)(unsigned char)*s);
+                        i += sprintf(&n[i], "\\%o", (int)(unsigned char)*s);
                     }
                 } else {
-                    (*out)[i++] = *s;
+                    n[i++] = *s;
                 }
         }
 
         s++;
     }
-    (*out)[i++] = '"';
+    n[i++] = '"';
 
-    str_realloc(out, i);
+    str_realloc(&n, i);
+
+    return n;
 }
 
-static inline char *
-str_cliteral(const char *s)
+static inline void
+str_assign_cliteral(char **out, const char *s)
 {
-    char *r = NULL;
-    str_assign_cliteral(&r, s);
-    return r;
+    char *r = str_cliteral(s);
+    str_swap(out, &r);
+    str_clear(&r);
 }

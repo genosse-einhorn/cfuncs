@@ -22,7 +22,7 @@
 #include "str.h"
 #include "vector.h"
 
-VECTOR_DEFINE_3(StrList, str_list, char *, const char *, str_dup, str_free, _str_xrealloc, free);
+VECTOR_DEFINE_3(StrList, str_list, char *, const char *, str_dup, free, _str_xrealloc, free);
 
 
 static inline void
@@ -132,19 +132,20 @@ str_list_as_doublenull(StrList l)
     return r;
 }
 
-static inline void
-str_list_assign_split(StrList *list, const char *str, const char *separator)
+static inline StrList
+str_split(const char *str, const char *separator)
 {
+    StrList list = NULL;
     int len = str_length(str);
     int sep_len = str_length(separator);
     if (len == 0) {
         // empty string -> empty list
-        str_list_resize_zero(list, 0);
+        // do nothing
     } else if (sep_len == 0) {
         // split every char in its own
-        str_list_resize_zero(list, (size_t)len);
+        str_list_resize_zero(&list, (size_t)len);
         for (int i = 0; i < len; ++i) {
-            str_assign_buf(&(*list)[i], &str[i], 1);
+            str_assign_buf(&list[i], &str[i], 1);
         }
     } else {
         // split at each separator
@@ -158,30 +159,30 @@ str_list_assign_split(StrList *list, const char *str, const char *separator)
                 j = j + i;
             }
 
-            str_list_set_buf(list, count, &str[i], j - i);
+            str_list_set_buf(&list, count, &str[i], j - i);
             i = j + sep_len;
             ++count;
         }
-
-        str_list_resize_zero(list, count);
     }
-}
 
-static inline StrList
-str_split(const char *str, const char *separator)
-{
-    StrList r = NULL;
-    str_list_assign_split(&r, str, separator);
-    return r;
+    return list;
 }
 
 static inline void
-str_assign_joined(char **out, StrList l, const char *separator)
+str_list_assign_split(StrList *list, const char *str, const char *separator)
+{
+    StrList n = str_split(str, separator);
+    str_list_swap(list, &n);
+    str_list_clear(&n);
+}
+
+static inline char *
+str_joined(StrList l, const char *separator)
 {
     if (str_list_length(l) < 1) {
-        str_clear(out);
+        return str_dup(NULL);
     } else if (str_list_length(l) == 1) {
-        str_assign(out, l[0]);
+        return str_dup(l[0]);
     } else {
         int length = 0;
         for (size_t i = 0; i < str_list_length(l); ++i) {
@@ -190,9 +191,10 @@ str_assign_joined(char **out, StrList l, const char *separator)
 
         length += (int)(str_list_length(l) - 1) * str_length(separator);
 
-        str_realloc(out, length);
+        char *out = NULL;
+        str_realloc(&out, length);
 
-        char *p = *out;
+        char *p = out;
         for (size_t i = 0; i < str_list_length(l); ++i) {
             if (i != 0) {
                 const char *s = separator ? separator : "";
@@ -204,15 +206,17 @@ str_assign_joined(char **out, StrList l, const char *separator)
             while (*s)
                 *p++ = *s++;
         }
+
+        return out;
     }
 }
 
-static inline char *
-str_joined(StrList l, const char *separator)
+static inline void
+str_assign_joined(char **out, StrList l, const char *separator)
 {
-    char *r = NULL;
-    str_assign_joined(&r, l, separator);
-    return r;
+    char *n = str_joined(l, separator);
+    str_swap(out, &n);
+    str_clear(&n);
 }
 
 static inline size_t
@@ -240,24 +244,24 @@ str_list_env_index(StrList l, const char *key, char **pvalue)
     return (size_t)-1;
 }
 
-static inline void
-str_assign_list_env_value(char **out, StrList l, const char *key)
+static inline char *
+str_list_env_value(StrList l, const char *key)
 {
     char *val = NULL;
     size_t i = str_list_env_index(l, key, &val);
     if (i != (size_t)-1) {
-        str_assign(out, val);
+        return str_dup(val);
     } else {
-        str_clear(out);
+        return NULL;
     }
 }
 
-static inline char *
-str_list_env_value(StrList l, const char *key)
+static inline void
+str_assign_list_env_value(char **out, StrList l, const char *key)
 {
-    char *r = NULL;
-    str_assign_list_env_value(&r, l, key);
-    return r;
+    char *n = str_list_env_value(l, key);
+    str_swap(out, &n);
+    str_clear(&n);
 }
 
 static inline void
@@ -269,17 +273,18 @@ str_list_set_env_value(StrList *plist, const char *key, const char *value)
     int keylen = str_length(key);
     int valuelen = str_length(value);
 
+    char *r = NULL;
+    str_realloc(&r, keylen + valuelen + 1);
+    memcpy(r, key, (size_t)keylen);
+    r[keylen] = '=';
+    memcpy(r + keylen + 1, value, (size_t)valuelen);
+
     size_t index = str_list_env_index(*plist, key, NULL);
-    if (index != (size_t)-1) {
-        str_realloc(&(*plist)[index], keylen + valuelen + 1);
-        memcpy((*plist)[index] + keylen + 1, value, (size_t)valuelen);
-    } else {
-        char *r = NULL;
-        str_realloc(&r, keylen + valuelen + 1);
-        memcpy(r, key, (size_t)keylen);
-        r[keylen] = '=';
-        memcpy(r + keylen + 1, value, (size_t)valuelen);
+    if (index == (size_t)-1) {
         str_list_emplace_back(plist, r);
+    } else {
+        str_swap(&(*plist)[index], &r);
+        str_clear(&r);
     }
 }
 
@@ -294,9 +299,11 @@ str_list_unset_env_value(StrList *plist, const char *key)
     }
 }
 
-static inline void
-str_list_assign_lines(StrList *plist, const char *lines)
+static inline StrList
+str_list_from_lines(const char *lines)
 {
+    StrList list = NULL;
+
     size_t c = 0;
     for (;;) {
         size_t i = 0;
@@ -304,9 +311,9 @@ str_list_assign_lines(StrList *plist, const char *lines)
             ++i;
 
         if (lines[i] == '\n' && i > 0 && lines[i-1] == '\r')
-            str_list_set_buf(plist, c++, lines, (int)i-1);
+            str_list_set_buf(&list, c++, lines, (int)i-1);
         else
-            str_list_set_buf(plist, c++, lines, (int)i);
+            str_list_set_buf(&list, c++, lines, (int)i);
 
         if (!lines[i])
             break;
@@ -314,13 +321,13 @@ str_list_assign_lines(StrList *plist, const char *lines)
         lines = lines + i + 1;
     }
 
-    str_list_resize_zero(plist, c);
+    return list;
 }
 
-static inline StrList
-str_list_from_lines(const char *lines)
+static inline void
+str_list_assign_lines(StrList *plist, const char *lines)
 {
-    StrList r = NULL;
-    str_list_assign_lines(&r, lines);
-    return r;
+    StrList r = str_list_from_lines(lines);
+    str_list_swap(plist, &r);
+    str_list_clear(&r);
 }
