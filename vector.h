@@ -97,7 +97,7 @@
  *      Insert el into the vector at the given index, without calling element_dup_func()
  *      Returns a pointer to the newly inserted element in the vector, or NULL on failure.
  *
- * ElementType *function_prefix_insert_multi(VectorType *pvec, size_t index, size_t count, ElementType *pel)
+ * ElementType *function_prefix_emplace_multi(VectorType *pvec, size_t index, size_t count, ElementType *pel)
  *      Insert `count` elements `pel` into the vector `pvec` at `index`, without calling element_dup_func.s
  *      Returns a pointer to the first newly inserted element in the vector, or NULL on failure.
  *
