@@ -4,3 +4,5 @@ test-str
 test-vector
 test-str-list
 test-intrusive-list
+test-hashtbl
+test-hashtbl2

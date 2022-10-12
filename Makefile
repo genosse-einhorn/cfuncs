@@ -8,17 +8,25 @@ ALL := \
     test/c11/test-str \
     test/c11/test-str-list \
     test/c11/test-intrusive-list \
+    test/c11/test-hashtbl \
+    test/c11/test-hashtbl2 \
     test/c99/test-vector \
     test/c99/test-str \
     test/c99/test-str-list \
     test/c99/test-intrusive-list \
+    test/c99/test-hashtbl \
+    test/c99/test-hashtbl2 \
     test/c++/test-vector \
     test/c++/test-str \
     test/c++/test-str-list \
     test/c++/test-intrusive-list \
+    test/c++/test-hashtbl \
+    test/c++/test-hashtbl2 \
     test-str \
     test-str-list \
-    test-intrusive-list
+    test-intrusive-list \
+    test-hashtbl \
+    test-hashtbl2
 
 all: $(ALL)
 

@@ -920,3 +920,17 @@ str_assign_cliteral(char **out, const char *s)
     str_swap(out, &r);
     str_clear(&r);
 }
+
+static inline unsigned
+str_hash(const char *str)
+{
+    str = str ? str : "";
+
+    unsigned h = 3323198485u;
+    for (; *str; ++str) {
+        h ^= *(unsigned char *)str;
+        h *= 0x5bd1e995;
+        h ^= h >> 15;
+    }
+    return h;
+}
